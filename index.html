@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#06121c">
+<title>Дестинация 2030</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap">
+<link rel="stylesheet" href="css/app.css">
+<style>
+.hero{max-width:780px;margin:8vh auto 0;display:flex;flex-direction:column;gap:22px}
+.hero h1{font:800 clamp(30px,6vw,56px)/1.05 var(--f-display);margin:0;text-wrap:balance}
+.hero h1 em{font-style:normal;color:var(--amber)}
+.hero p{font-size:17px;max-width:60ch;margin:0;color:var(--mist)}
+.doors{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.door{display:flex;flex-direction:column;gap:8px;text-decoration:none;color:inherit;border-radius:18px;padding:20px;background:var(--sea-1);border:1px solid var(--line)}
+.door:hover{border-color:var(--amber)}
+.door b{font:800 20px var(--f-display)}
+.door span{color:var(--mist);font-size:14px}
+.roles{display:flex;gap:8px;flex-wrap:wrap}
+@media (max-width:560px){.doors{grid-template-columns:minmax(0,1fr)}}
+</style>
+</head>
+<body>
+<main class="hero">
+ <div class="eyebrow">Калининградская область · 2026 → 2030</div>
+ <h1>Дестинация <em>2030</em></h1>
+ <p>Стратегическая игра о развитии туризма. Правительство, инвесторы, экологи, жители и туроператоры за четыре года решают, каким станет регион. У каждой команды своя секретная цель, а природа Куршской косы и терпение жителей — общие.</p>
+ <div class="roles"><span class="pill" style="--tc:#f4a73b"><i></i>🏛 Правительство</span><span class="pill" style="--tc:#4cc9f0"><i></i>💼 Инвесторы</span><span class="pill" style="--tc:#a5e36b"><i></i>🌲 Экологи</span><span class="pill" style="--tc:#ff8a65"><i></i>🏡 Жители</span><span class="pill" style="--tc:#c6a2e0"><i></i>📣 Маркетинг</span></div>
+ <div class="doors">
+  <a class="door" href="host.html"><b>Я ведущий</b><span>Пульт для проектора: QR-код, карта нагрузки, совет дестинации, итоги каждого года и финальный доклад.</span></a>
+  <a class="door" href="play.html"><b>Я в команде</b><span>Вход по коду комнаты с экрана ведущего. Лучше сканировать QR-код.</span></a>
+ </div>
+</main>
+</body>
+</html>

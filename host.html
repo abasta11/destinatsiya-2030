@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Дестинация 2030 · Ведущий</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <svg class="drop" viewBox="0 0 34 40" aria-hidden="true"><defs><radialGradient id="dg" cx="38%" cy="40%" r="70%"><stop offset="0" stop-color="#ffe3a3"/><stop offset=".45" stop-color="#f4a73b"/><stop offset="1" stop-color="#9c4a10"/></radialGradient></defs><path d="M17 1C17 1 3 17 3 26a14 14 0 0 0 28 0C31 17 17 1 17 1Z" fill="url(#dg)"/><ellipse cx="12" cy="24" rx="3.2" ry="5" fill="#fff" opacity=".35" transform="rotate(-20 12 24)"/></svg>
+      <div><h1>Дестинация 2030</h1><small>пульт ведущего</small></div>
+    </div>
+    <nav class="phases" id="phases" aria-label="Годы игры"></nav>
+    <div class="tools">
+      <button class="ibtn net" data-a="tab" data-k="online" id="netBadge">Офлайн</button>
+      <button class="ibtn" data-a="sound" id="soundBtn">🔊 Звук</button>
+      <button class="ibtn" data-a="fs">⛶ Экран</button>
+      <button class="ibtn" data-a="newgame" id="newBtn">Новая игра</button>
+    </div>
+  </header>
+  <div class="stagebar"><nav class="tabs" id="tabs" style="flex:1"></nav><span class="stage-pill" id="stagePill"></span><button class="btn next" data-a="next" id="nextBtn">Дальше →</button></div>
+  <div class="main">
+    <section class="stage" id="stage"></section>
+    <aside class="rail">
+      <section class="panel">
+        <div class="timer" id="timer">
+          <div class="ring">
+            <svg viewBox="0 0 180 180"><circle cx="90" cy="90" r="80" fill="none" stroke="var(--sea-2)" stroke-width="12"/><circle class="arc" id="tArc" cx="90" cy="90" r="80" fill="none" stroke="var(--amber)" stroke-width="12" stroke-linecap="round" stroke-dasharray="502.65" stroke-dashoffset="0"/></svg>
+            <div class="digits" id="tDigits">08:00</div>
+          </div>
+          <div>
+            <div class="eyebrow">Таймер · виден на телефонах</div>
+            <div class="tlabel" id="tLabel"></div>
+            <div class="row">
+              <button class="btn sm" data-a="tgo" id="tGo">▶ Старт</button>
+              <button class="btn sm ghost" data-a="tplus">+1 мин</button>
+              <button class="btn sm ghost" data-a="treset" aria-label="Сбросить таймер">↺</button>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="panel" id="board"></section>
+    </aside>
+  </div>
+  <footer class="foot">
+    <div class="waves" aria-hidden="true">
+      <svg viewBox="0 0 1200 42" preserveAspectRatio="none"><path d="M0 30 Q75 18 150 30 T300 30 T450 30 T600 30 T750 30 T900 30 T1050 30 T1200 30 V42 H0Z" fill="#1a4160"/></svg>
+      <svg viewBox="0 0 1200 42" preserveAspectRatio="none"><path d="M0 34 Q50 26 100 34 T200 34 T300 34 T400 34 T500 34 T600 34 T700 34 T800 34 T900 34 T1000 34 T1100 34 T1200 34 V42 H0Z" fill="#24506f"/></svg>
+    </div>
+    <div class="ticker"><div class="tk-lbl">РЕГИОН</div><div class="tk-view"><div class="tk-track" id="ticker"></div></div></div>
+  </footer>
+</div>
+<canvas id="fx"></canvas>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script src="js/game.js"></script>
+<script src="js/net.js"></script>
+<script>
+/* ═════════ СОСТОЯНИЕ ═════════ */
+const KEY='dest2030-host-v1';
+const STAGES={lobby:'Открытие',news:'Новости года',work:'Проекты и сделки',council:'Совет дестинации',results:'Итоги года',final:'Финал'};
+const STAGE_MIN={lobby:8,news:1,work:8,council:4,results:3,final:14};
+const STAGE_TAB={lobby:'online',news:'region',work:'props',council:'props',results:'results',final:'final'};
+function pick(a){return a[Math.random()*a.length|0]}
+function fresh(room,active){
+ const W=freshWorld(),act=active||ROLES.map(r=>r.id),teams={};
+ ROLES.forEach(r=>teams[r.id]={money:r.start,assets:[],earned:0,built:0,goal:pick(GOALS[r.id]).id,vetoes:r.id==='gov'?2:0});
+ return{v:1,room:room||makeRoomCode(),broker:0,sound:true,tab:'online',active:act,year:START_YEAR,stage:'lobby',world:W,hist:[snapshot(W,START_YEAR)],
+  teams,props:[],deals:[],event:null,used:[],results:null,finalShown:false,sel:'zel',log:[]}}
+let S;try{const s=JSON.parse(localStorage.getItem(KEY));S=(s&&s.v===1)?s:fresh()}catch(e){S=fresh()}
+let pubT=0;function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}clearTimeout(pubT);pubT=setTimeout(pubState,120)}
+const PRES={};
+const last=()=>S.hist[S.hist.length-1];
+const prev=()=>S.hist.length>1?S.hist[S.hist.length-2]:null;
+const ev=()=>S.event?EVENT[S.event]:null;
+const costMul=()=>S.stage==='work'||S.stage==='council'?((ev()||{}).costMul||1):1;
+function addLog(role,t,d){S.log.unshift({role,t,d:d||0,y:S.year});S.log=S.log.slice(0,150)}
+
+/* ═════════ ЗВУК ═════════ */
+let AC=null;
+function ac(){if(!AC){try{AC=new(window.AudioContext||window.webkitAudioContext)()}catch(e){return null}}if(AC.state==='suspended')AC.resume();return AC}
+function tone(f,dur,type,vol,when){if(!S.sound)return;const a=ac();if(!a)return;const t=a.currentTime+(when||0);const o=a.createOscillator(),g=a.createGain();o.type=type||'sine';o.frequency.setValueAtTime(f,t);g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vol||.15,t+.01);g.gain.exponentialRampToValueAtTime(.0001,t+dur);o.connect(g).connect(a.destination);o.start(t);o.stop(t+dur+.05)}
+const SFX={
+ tick:()=>tone(1900,.035,'square',.035),tock:()=>tone(1250,.06,'square',.08),
+ gong:()=>{[98,196,294,392,523].forEach((f,i)=>tone(f,3.4-i*.4,'sine',.28/(i+1)))},
+ fanfare:()=>{[523,659,784].forEach((f,i)=>tone(f,.28,'triangle',.16,i*.13));tone(1047,1,'triangle',.18,.42)},
+ coin:()=>{tone(988,.08,'square',.06);tone(1319,.28,'square',.06,.08)},
+ bad:()=>{tone(311,.22,'sawtooth',.07);tone(233,.45,'sawtooth',.07,.18)},
+ ping:()=>{tone(1568,.12,'sine',.12);tone(2093,.3,'sine',.1,.1)},
+ drum:()=>{for(let i=0;i<14;i++)tone(140+i*6,.06,'triangle',.1,i*.07)},
+};
+
+/* ═════════ СЕТЬ ═════════ */
+let NET=null,netStatus='offline';
+const NET_LABEL={offline:'Офлайн',connecting:'Подключение…',reconnect:'Переподключение…',online:'Онлайн',fail:'Нет связи',nolib:'Нет библиотеки'};
+function startNet(){
+ if(NET)NET.end();
+ NET=makeNet({room:S.room,subs:['cmd','pres/#'],onStatus:s=>{netStatus=s;renderNetBadge();if(s==='online'){pubState();pubGoals()}if(S.tab==='online')renderStage()},onMsg});
+ NET.connect(S.broker).then(i=>{if(i>=0&&i!==S.broker){S.broker=i;save()}if(S.tab==='online')renderStage()});
+}
+function renderNetBadge(){const b=$('#netBadge');b.className='ibtn net '+netStatus;b.textContent=NET_LABEL[netStatus]+(netStatus==='online'?` · ${Object.keys(PRES).length} игрок.`:'')}
+function pubGoals(){if(NET&&NET.connected)ROLES.forEach(r=>NET.pub('goal/'+r.id,{id:S.teams[r.id].goal},true))}
+function reply(cid,ok,text){if(NET&&NET.connected&&cid)NET.pub('reply/'+cid,{ok,text,ts:Date.now()})}
+function publicState(){
+ const H=S.hist.map(h=>({year:h.year,region:h.region,zones:Object.fromEntries(ZONES.map(z=>[z.id,{served:h.zones[z.id].served,load:h.zones[z.id].load,eco:h.zones[z.id].eco,res:h.zones[z.id].res,season:h.zones[z.id].season,closed:h.zones[z.id].closed,cap:h.zones[z.id].cap,carry:h.zones[z.id].carry,demand:h.zones[z.id].demand}]))}));
+ const e=ev();
+ return{v:1,now:Date.now(),year:S.year,stage:S.stage,active:S.active,timer:{run:T.run,end:T.end,left:T.left,total:T.total,label:T.label},
+  event:e?{id:e.id,t:e.t,d:e.d,kind:e.kind}:null,costMul:costMul(),hist:H,reasons:last().reasons,
+  teams:Object.fromEntries(S.active.map(r=>{const t=S.teams[r];return[r,{money:t.money,vetoes:t.vetoes,assets:t.assets,earned:t.earned,built:t.built}]})),
+  props:S.props.map(p=>({id:p.id,role:p.role,pid:p.pid,zone:p.zone,cost:p.cost,year:p.year,status:p.status,yes:Object.values(p.votes).filter(v=>v==='yes').length,no:Object.values(p.votes).filter(v=>v==='no').length,protest:p.protest,veto:p.veto})),
+  deals:S.deals,results:S.results?{inc:S.results.inc,why:S.results.why,year:S.results.year}:null,
+  final:S.finalShown?finalScores():null};
+}
+function pubState(){if(NET&&NET.connected)NET.pub('state',publicState(),true)}
+let rerT=0;function softRender(){clearTimeout(rerT);rerT=setTimeout(()=>{const a=document.activeElement;if(a&&/INPUT|TEXTAREA|SELECT/.test(a.tagName)&&$('#stage').contains(a))return;renderAll()},150)}
+function onMsg(sub,v){
+ const p=sub.split('/');
+ if(p[0]==='pres'){if(v)PRES[p[1]]=v;else delete PRES[p[1]];renderNetBadge();softRender();return}
+ if(sub==='cmd'&&v)handleCmd(v);
+}
+function handleCmd(v){
+ const role=v.role,t=S.teams[role];
+ if(v.type==='propose'){
+  if(S.stage!=='work')return reply(v.cid,false,'Предлагать проекты можно только на этапе «Проекты и сделки».');
+  const pr=PROJ[v.pid];if(!pr||pr.role!==role||!S.active.includes(role))return reply(v.cid,false,'Этот проект не для вашей команды.');
+  const zone=pr.zones?v.zone:(pr.fixed?pr.fixed[0]:'all');if(pr.zones&&!pr.zones.includes(zone))return reply(v.cid,false,'Выберите зону из списка.');
+  if(pr.once&&S.props.some(x=>x.pid===pr.id&&!['rejected','vetoed'].includes(x.status)))return reply(v.cid,false,'Этот проект уже принят. Его можно сделать только один раз.');
+  const cost=Math.round(pr.cost*costMul());if(t.money<cost)return reply(v.cid,false,`Не хватает денег: нужно ${fM(cost)}, у вас ${fM(t.money)}.`);
+  const hot=isHot(pr,zone);t.money-=cost;
+  S.props.push({id:makeId(),role,pid:pr.id,zone,cost,year:S.year,status:hot?'pending':'approved',votes:{},protest:[],veto:false,by:v.nick||''});
+  addLog(role,`${hot?'Спорный проект на совет':'Утверждён проект'}: ${pr.name}${pr.zones?' ('+ZONE[zone].name+')':''}`,-cost);
+  SFX.ping();toast(`${ROLE[role].short}: ${pr.name}`);reply(v.cid,true,hot?'Проект спорный: он пойдёт на совет дестинации. Деньги зарезервированы.':'Проект утверждён и будет построен в этом году.');save();softRender();
+ }
+ else if(v.type==='cancel'){const x=S.props.find(q=>q.id===v.id&&q.role===role);if(!x||S.stage!=='work'||!['approved','pending'].includes(x.status))return reply(v.cid,false,'Этот проект уже нельзя отменить.');
+  t.money+=x.cost;S.props=S.props.filter(q=>q!==x);addLog(role,'Отменён проект: '+PROJ[x.pid].name,x.cost);reply(v.cid,true,'Проект отменён, деньги вернулись.');save();softRender()}
+ else if(v.type==='vote'){const x=S.props.find(q=>q.id===v.id);if(!x||S.stage!=='council'||x.status!=='vote')return;x.votes[v.cid]=v.v==='yes'?'yes':'no';save();softRender()}
+ else if(v.type==='protest'){const x=S.props.find(q=>q.id===v.id);if(!x||x.status!=='vote'||!['eco','res'].includes(role))return;if(!x.protest.includes(role)){x.protest.push(role);addLog(role,'Протест против: '+PROJ[x.pid].name);SFX.bad();toast(`${ROLE[role].short} объявили протест!`)}save();softRender()}
+ else if(v.type==='veto'){const x=S.props.find(q=>q.id===v.id);if(!x||x.status!=='vote'||role!=='gov'||x.veto)return;if(t.vetoes<=0)return reply(v.cid,false,'Вето закончились.');t.vetoes--;x.veto=true;addLog('gov','Вето: '+PROJ[x.pid].name);SFX.bad();toast('Правительство наложило вето!');save();softRender()}
+ else if(v.type==='deal'){if(!['work','council'].includes(S.stage))return reply(v.cid,false,'Сделки заключаются на этапах «Проекты» и «Совет».');
+  const to=v.to;if(!S.active.includes(to)||to===role)return;const give=Math.max(0,Math.round(+v.give||0)),get=Math.max(0,Math.round(+v.get||0));if(!give&&!get&&!v.note)return;
+  S.deals.unshift({id:makeId(),from:role,to,give,get,note:String(v.note||'').slice(0,160),status:'open',year:S.year,ts:Date.now()});SFX.ping();reply(v.cid,true,'Предложение отправлено.');save();softRender()}
+ else if(v.type==='dealAnswer'){const d=S.deals.find(x=>x.id===v.id);if(!d||d.status!=='open'||d.to!==role)return;
+  if(!v.accept){d.status='declined';save();softRender();return}
+  const A=S.teams[d.from],B=S.teams[d.to];if(A.money<d.give||B.money<d.get){d.status='failed';reply(v.cid,false,'Сделка сорвалась: у одной из сторон не хватает денег.');save();softRender();return}
+  A.money+=d.get-d.give;B.money+=d.give-d.get;d.status='accepted';addLog(d.from,`Сделка с «${ROLE[d.to].short}»`,d.get-d.give);addLog(d.to,`Сделка с «${ROLE[d.from].short}»`,d.give-d.get);SFX.coin();toast('Сделка заключена!');save();softRender()}
+}
+
+/* ═════════ ХОД ИГРЫ ═════════ */
+function nextLabel(){return{lobby:'Начать 2027 год →',news:'К проектам →',work:'Открыть совет →',council:'Подвести итоги года →',results:S.year>=2030?'К финалу →':`Начать ${S.year+1} год →`,final:'Игра завершена'}[S.stage]}
+function setStage(st){S.stage=st;S.tab=STAGE_TAB[st];tSet(STAGE_MIN[st]*60,STAGES[st]);save();renderAll()}
+function next(){
+ if(S.stage==='lobby'||S.stage==='results'){
+  if(S.stage==='results'&&S.year>=2030){S.stage='final';S.tab='final';tSet(STAGE_MIN.final*60,'Финал');save();renderAll();return}
+  S.year=S.stage==='lobby'?YEARS[0]:S.year+1;
+  const pool=EVENTS.filter(e=>!S.used.includes(e.id));const e=pick(pool.length?pool:EVENTS);S.event=e.id;S.used.push(e.id);
+  if(e.money)Object.entries(e.money).forEach(([r,m])=>{if(S.teams[r]){S.teams[r].money+=m;addLog(r,'Событие: '+e.t,m)}});
+  (e.kind==='good'?SFX.fanfare:SFX.bad)();setStage('news');return}
+ if(S.stage==='news'){setStage('work');return}
+ if(S.stage==='work'){S.props.forEach(p=>{if(p.status==='pending'&&p.year===S.year)p.status='vote'});SFX.drum();setStage('council');return}
+ if(S.stage==='council'){resolveYear();setStage('results');SFX.fanfare();return}
+}
+function passes(p){if(p.veto)return false;const y=Object.values(p.votes).filter(v=>v==='yes').length,n=Object.values(p.votes).filter(v=>v==='no').length;return p.protest.length?(y>0&&y>=2*n):y>n}
+function resolveYear(){
+ const Y=S.year;
+ S.props.forEach(p=>{if(p.year!==Y||p.status!=='vote')return;const ok=passes(p);p.status=ok?'approved':(p.veto?'vetoed':'rejected');
+  if(!ok){S.teams[p.role].money+=p.cost;addLog(p.role,`${p.veto?'Вето':'Совет отклонил'}: ${PROJ[p.pid].name} — деньги возвращены`,p.cost)}else addLog(p.role,'Совет одобрил: '+PROJ[p.pid].name)});
+ const built=S.props.filter(p=>p.year===Y&&p.status==='approved');
+ const out=simulateYear(S.world,Y,built,ev(),last().region.rating);
+ built.forEach(p=>{p.status='built';const t=S.teams[p.role];t.built++;if(PROJ[p.pid].yield)t.assets.push({pid:p.pid,zone:p.zone,cost:p.cost})});
+ const I=incomes(out,S.world,S.teams);
+ S.active.forEach(r=>{const t=S.teams[r];t.money+=I.inc[r];if(I.ownEarn[r]!=null)t.earned+=I.ownEarn[r];addLog(r,`Доход ${Y} года`,I.inc[r])});
+ S.hist.push(out);S.results={year:Y,inc:I.inc,why:I.why,built:built.map(b=>({pid:b.pid,zone:b.zone,role:b.role}))};
+}
+function finalScores(){
+ const H=last(),R={last:H.region,lastZ:H.zones,spitClosedEver:S.world.spitClosedEver};
+ const common=(H.region.eco>=60&&H.region.res>=60?COMMON_BONUS:0)-(S.world.spitClosedEver?COMMON_PENALTY:0);
+ const out={common,eco:H.region.eco,res:H.region.res,closed:S.world.spitClosedEver,teams:{}};
+ S.active.forEach(r=>{const t=S.teams[r],g=GOALS[r].find(x=>x.id===t.goal);const sc=Math.max(0,Math.min(100,g.score(R,t)));out.teams[r]={goal:g.t,goalD:g.d,goalScore:sc,total:sc+common}});
+ return out;
+}
+
+/* ═════════ ОТРИСОВКА ═════════ */
+const TABS=[['online','Онлайн'],['region','Регион'],['props','Проекты'],['deals','Сделки'],['results','Итоги года'],['final','Финал']];
+function renderHeader(){
+ const steps=[['lobby','Открытие',START_YEAR],...YEARS.map(y=>['y'+y,String(y),y]),['final','Финал',9999]];
+ const curKey=S.stage==='lobby'?'lobby':S.stage==='final'?'final':'y'+S.year;
+ const ci=steps.findIndex(s=>s[0]===curKey);
+ $('#phases').innerHTML=steps.map(([k,n],i)=>`<div class="phase ${i===ci?'on':i<ci?'done':''}"><b>${n}</b><span>${k==='lobby'?'8 мин':k==='final'?'14 мин':'17 мин'}</span></div>`).join('');
+ const cnt=k=>{let n=0;if(k==='props')n=S.props.filter(p=>p.year===S.year&&['pending','vote'].includes(p.status)).length;if(k==='deals')n=S.deals.filter(d=>d.status==='open').length;return n?`<span class="cnt">${n}</span>`:''};
+ $('#tabs').innerHTML=TABS.map(([k,n])=>`<button class="tab ${S.tab===k?'on':''}" data-a="tab" data-k="${k}">${n}${cnt(k)}</button>`).join('');
+ $('#stagePill').textContent=(S.stage==='lobby'||S.stage==='final'?'':S.year+' · ')+STAGES[S.stage];
+ const nb=$('#nextBtn');nb.textContent=nextLabel();nb.disabled=S.stage==='final';
+ $('#soundBtn').textContent=S.sound?'🔊 Звук':'🔇 Без звука';
+ const r=last().region,e=ev();
+ const news=[`Турпоток ${fT(r.tourists)} человек`,`Рейтинг дестинации ${String(r.rating).replace('.',',')}`,`Индекс природы ${Math.round(r.eco)}`,`Индекс жителей ${Math.round(r.res)}`,`Доля лета ${Math.round(r.season)}%`,`Туристический налог ${taxRate(Math.max(S.year,START_YEAR))}%`,...(e?[e.t]:[]),...(r.lost>1?[`${fN(r.lost)} тыс. туристов не нашли жильё`]:[])];
+ $('#ticker').innerHTML=[...news,...news].map(n=>`<span>${esc(n)}</span>`).join('');
+ renderNetBadge();
+}
+function kpiTiles(){
+ const r=last().region,p=prev()?prev().region:null;
+ const d=(v,pv,fmt,inv)=>{if(pv==null)return'';const x=v-pv;if(Math.abs(x)<.05)return'<span class="d">±0</span>';const good=inv?x<0:x>0;return`<span class="d ${good?'up':'down'}">${x>0?'+':'−'}${fmt(Math.abs(x))}</span>`};
+ return`<div class="kpis">
+  <div class="kpi"><span>Турпоток</span><b>${fT(r.tourists)}</b>${d(r.tourists,p&&p.tourists,v=>fN(v)+' тыс.')}</div>
+  <div class="kpi"><span>Рейтинг</span><b>${String(r.rating).replace('.',',')} ★</b>${d(r.rating,p&&p.rating,v=>v.toFixed(1).replace('.',','))}</div>
+  <div class="kpi"><span>Природа</span><b style="color:${idxColor(r.eco)}">${Math.round(r.eco)}</b>${d(r.eco,p&&p.eco,v=>Math.round(v))}</div>
+  <div class="kpi"><span>Жители</span><b style="color:${idxColor(r.res)}">${Math.round(r.res)}</b>${d(r.res,p&&p.res,v=>Math.round(v))}</div>
+  <div class="kpi"><span>Доля лета</span><b>${Math.round(r.season)}%</b>${d(r.season,p&&p.season,v=>Math.round(v)+' п.п.',true)}</div>
+  <div class="kpi"><span>Траты туристов</span><b>${fN(r.revenue/1000)} млрд</b>${d(r.revenue/1000,p&&p.revenue/1000,v=>fN(v)+' млрд')}</div></div>`;
+}
+function zoneCard(zid){
+ const Z=ZONE[zid],z=last().zones[zid],rs=last().reasons[zid]||[];
+ const row=(l,v,max,col,txt)=>`<div class="zrow"><span>${l}</span><div class="bar"><i style="width:${Math.min(100,v/max*100)}%;background:${col}"></i></div><b>${txt}</b></div>`;
+ return`<div class="panel zcard"><div class="eyebrow">Зона</div><div class="h2" style="font-size:20px;margin:4px 0 6px">${esc(Z.name)}</div><p class="muted" style="margin:0 0 10px;font-size:13px">${esc(ZONE_NOTE[zid])}</p>
+  ${row('Нагрузка',z.load,1.3,loadColor(z.load),z.closed?'закрыта':Math.round(z.load*100)+'%')}
+  ${row('Природа',z.eco,100,idxColor(z.eco),Math.round(z.eco))}
+  ${row('Жители',z.res,100,idxColor(z.res),Math.round(z.res))}
+  ${row('Доля лета',z.season,100,'#c6a2e0',Math.round(z.season)+'%')}
+  <div class="muted mono" style="font-size:12px">Туристов ${fN(z.served)} тыс. · спрос ${fN(z.demand)} тыс. · ${z.cap?'мест '+fN(z.cap)+' тыс. · ':''}пропускная ${fN(z.carry)} тыс.</div>
+  ${rs.length?`<ul class="why">${rs.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:''}</div>`;
+}
+function charts(){
+ const L=S.hist.map(h=>h.year);
+ return`<div class="charts">
+  <div class="panel"><div class="lbl">Турпоток, млн человек</div>${lineChart(L,[{name:'Турпоток',color:'#f4a73b',values:S.hist.map(h=>h.region.tourists/1000)}],{fmt:v=>v.toFixed(1).replace('.',','),label:'Турпоток по годам'})}</div>
+  <div class="panel"><div class="lbl">Природа и жители, индекс</div>${lineChart(L,[{name:'Природа',color:'#5fd3a0',values:S.hist.map(h=>h.region.eco)},{name:'Жители',color:'#ff8a65',values:S.hist.map(h=>h.region.res)},{name:'Коса',color:'#4cc9f0',values:S.hist.map(h=>h.zones.spit.eco)}],{min:0,max:100,label:'Индексы природы и жителей'})}</div>
+  <div class="panel"><div class="lbl">Рейтинг дестинации</div>${lineChart(L,[{name:'Рейтинг',color:'#ffd27a',values:S.hist.map(h=>h.region.rating)}],{min:1,max:5,fmt:v=>v.toFixed(1).replace('.',','),label:'Рейтинг по годам'})}</div></div>`;
+}
+function renderRegion(){
+ const e=ev(),built=S.props.filter(p=>p.status==='built').map(p=>({zone:p.zone==='all'?'kgd':p.zone,role:p.role}));
+ $('#stage').innerHTML=`${S.stage==='news'&&e?`<div class="evbig ${e.kind}"><div class="eyebrow">Новости ${S.year} года</div><h3>${esc(e.t)}</h3><p style="font-size:17px;margin:0">${esc(e.d)}</p></div>`:''}
+ ${kpiTiles()}
+ <div class="region-grid"><div class="panel" style="padding:10px"><div class="map-wrap">${regionSVG(last(),S.sel,built)}</div></div><div>${zoneCard(S.sel)}</div></div>
+ ${charts()}`;
+}
+function propCard(p,big){
+ const pr=PROJ[p.pid],R=ROLE[p.role],y=Object.values(p.votes).filter(v=>v==='yes').length,n=Object.values(p.votes).filter(v=>v==='no').length,tot=Math.max(1,y+n);
+ return`<article class="prop" style="--rc:${R.color}"><div class="row" style="justify-content:space-between"><span class="meta">${R.icon} ${esc(R.short)}${p.by?' · '+esc(p.by):''}</span><span class="status ${p.status}">${{approved:'утверждён',pending:'на совет',vote:'голосование',rejected:'отклонён',vetoed:'вето',built:'построен'}[p.status]}</span></div>
+  <h3>${esc(pr.name)}</h3><div class="meta">${pr.region?'Весь регион':pr.fixed?pr.fixed.map(z=>ZONE[z].name).join(', '):ZONE[p.zone].name} · ${fM(p.cost)} · ${p.year}</div>
+  <div class="eff">${esc(effText(pr,p.zone))}</div>${pr.note?`<div class="meta">${esc(pr.note)}</div>`:''}
+  ${p.status==='vote'||(big&&['rejected','vetoed'].includes(p.status))?`<div class="vbar"><i class="y" style="width:${y/tot*100}%">${y||''}</i><i class="n" style="width:${n/tot*100}%">${n||''}</i></div>
+   <div class="row">${p.protest.map(r=>`<span class="tag hot">протест: ${ROLE[r].short}</span>`).join('')}${p.veto?'<span class="tag hot">вето правительства</span>':''}${p.protest.length?'<span class="muted" style="font-size:12px">нужно 2/3 голосов «за»</span>':''}</div>`:''}
+  ${p.status==='vote'?`<div class="row"><button class="btn sm ghost" data-a="force" data-id="${p.id}" data-v="yes">Одобрить</button><button class="btn sm ghost" data-a="force" data-id="${p.id}" data-v="no">Отклонить</button></div>`:''}
+ </article>`;
+}
+function renderProps(){
+ const cur=S.props.filter(p=>p.year===S.year),voting=cur.filter(p=>['vote','pending'].includes(p.status)),ok=cur.filter(p=>p.status==='approved'),old=S.props.filter(p=>p.year<S.year||['built','rejected','vetoed'].includes(p.status)).filter(p=>!cur.includes(p)||['rejected','vetoed'].includes(p.status));
+ $('#stage').innerHTML=`<div class="panel"><div class="row" style="justify-content:space-between"><div><div class="eyebrow">${S.year} · ${STAGES[S.stage]}</div><div class="h2" style="margin:6px 0 0">${S.stage==='council'?'Совет дестинации: голосуют телефоны':'Проекты команд'}</div></div>
+  <div class="muted" style="font-size:13px;max-width:56ch">${S.stage==='council'?'Каждый игрок голосует «за» или «против». Протест экологов или жителей требует 2/3 голосов. Вето правительства отменяет проект.':'Обычные проекты утверждаются сразу. Спорные (вред природе или жителям, стройка на косе) уходят на совет.'}</div></div></div>
+ <section class="panel"><div class="h2">${S.stage==='council'?'На голосовании':'Спорные — ждут совета'} · ${voting.length}</div>${voting.length?`<div class="props">${voting.map(p=>propCard(p,true)).join('')}</div>`:'<div class="empty">Спорных проектов нет</div>'}</section>
+ <section class="panel"><div class="h2">Утверждены в ${S.year} году · ${ok.length}</div>${ok.length?`<div class="props">${ok.map(p=>propCard(p)).join('')}</div>`:'<div class="empty">Пока ничего</div>'}</section>
+ ${old.length?`<section class="panel"><div class="h2">Прошлые решения</div><div class="props">${old.slice().reverse().map(p=>propCard(p)).join('')}</div></section>`:''}`;
+}
+function renderDeals(){
+ $('#stage').innerHTML=`<div class="panel"><div class="h2">Сделки между командами</div><p class="muted" style="margin:0">Команды предлагают сделки с телефонов: деньги в обмен на деньги, софинансирование или обещание голоса. Обещания не обязательны к исполнению, как и в жизни.</p></div>
+ <section class="panel">${S.deals.length?`<div class="qa">${S.deals.map(d=>`<div class="q ${d.status!=='open'?'done':''}" style="--tc:${ROLE[d.from].color}"><div class="who">${d.year} · ${ROLE[d.from].icon} ${esc(ROLE[d.from].short)} → ${ROLE[d.to].icon} ${esc(ROLE[d.to].short)} · <b>${{open:'ждёт ответа',accepted:'заключена',declined:'отклонена',failed:'сорвалась'}[d.status]}</b></div>
+  <div class="txt">${d.give?'Отдаёт '+fM(d.give):''}${d.give&&d.get?' · ':''}${d.get?'Просит '+fM(d.get):''}</div>${d.note?`<div>«${esc(d.note)}»</div>`:''}</div>`).join('')}</div>`:'<div class="empty">Сделок пока нет</div>'}</section>`;
+}
+function renderResults(){
+ if(!S.results){$('#stage').innerHTML=`<div class="panel"><div class="h2">Итоги года</div><p class="muted">Итоги появятся после совета дестинации.</p></div>${kpiTiles()}${charts()}`;return}
+ const R=S.results,H=last();
+ $('#stage').innerHTML=`<div class="panel"><div class="eyebrow">Итоги ${R.year} года</div><div class="h2" style="font-size:22px;margin:6px 0 0">Что произошло с регионом</div></div>
+ ${kpiTiles()}
+ <div class="region-grid"><div class="panel" style="padding:10px"><div class="map-wrap">${regionSVG(H,S.sel,R.built.map(b=>({zone:b.zone==='all'?'kgd':b.zone,role:b.role})))}</div></div>
+  <div class="panel"><div class="h2">Доходы команд за год</div>${S.active.map(r=>`<div style="padding:8px 0;border-bottom:1px solid rgba(36,80,111,.5)"><div class="row" style="justify-content:space-between"><b>${ROLE[r].icon} ${esc(ROLE[r].short)}</b><b class="mono" style="color:var(--good)">+${fM(R.inc[r])}</b></div><div class="muted" style="font-size:12.5px">${esc(R.why[r])}</div></div>`).join('')}</div></div>
+ <section class="panel"><div class="h2">Почему изменились зоны</div><div class="props">${ZONES.map(Z=>{const z=H.zones[Z.id];return`<div class="prop" style="--rc:${loadColor(z.load)}"><h3>${esc(Z.name)}</h3><div class="eff">нагрузка ${z.closed?'—':Math.round(z.load*100)+'%'} · природа ${Math.round(z.eco)} (${z.dEco>=0?'+':''}${Math.round(z.dEco)}) · жители ${Math.round(z.res)} (${z.dRes>=0?'+':''}${Math.round(z.dRes)})</div>${(H.reasons[Z.id]||[]).length?`<ul class="why">${H.reasons[Z.id].map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:'<div class="meta">Без изменений</div>'}</div>`}).join('')}</div></section>
+ ${charts()}`;
+}
+let revealN=0;
+function renderFinal(){
+ if(!S.finalShown){$('#stage').innerHTML=`<div class="panel" style="text-align:center;padding:40px 20px"><div class="eyebrow">2030 год</div><div class="h2" style="font-size:28px;margin:10px 0">Доклад «Дестинация 2030»</div><p class="muted" style="max-width:60ch;margin:0 auto 20px">Сначала обсудите с классом: каким стал регион? Кто выиграл от решений, а кто проиграл? Затем раскройте секретные цели команд.</p><button class="btn" data-a="finale">🎯 Раскрыть секретные цели</button></div>${kpiTiles()}${charts()}`;return}
+ const F=finalScores(),rows=S.active.map(r=>({r,...F.teams[r]})).sort((a,b)=>b.total-a.total);
+ $('#stage').innerHTML=`<div class="panel"><div class="eyebrow">Итоги 2026–2030</div><div class="h2" style="font-size:24px;margin:6px 0 12px">Доклад «Дестинация 2030»</div>
+  ${F.closed?`<div class="banner bad">Куршскую косу закрывали из-за перегрузки. Все команды получают −${COMMON_PENALTY} очков.</div>`:''}
+  ${F.common>0?`<div class="banner good" style="margin-top:8px">Регион устойчив: природа ${Math.round(F.eco)} и жители ${Math.round(F.res)} — не ниже 60. Все команды получают +${COMMON_BONUS} очков.</div>`:(!F.closed?`<div class="banner bad" style="margin-top:8px">Общий бонус не получен: природа ${Math.round(F.eco)}, жители ${Math.round(F.res)}. Для бонуса оба индекса должны быть не ниже 60.</div>`:'')}</div>
+ ${kpiTiles()}
+ <section class="panel"><div class="h2">Секретные цели и очки</div>${rows.map((x,k)=>`<div class="score-row" style="--rc:${ROLE[x.r].color};animation-delay:${k*.5}s"><div class="ic">${k===0?'👑':ROLE[x.r].icon}</div><div><b>${esc(ROLE[x.r].name)}</b><div class="muted" style="font-size:13px">Цель «${esc(x.goal)}»: ${esc(x.goalD)}</div><div class="mono" style="font-size:12.5px">цель ${x.goalScore}/100 ${F.common>=0?'+':'−'} общий итог ${Math.abs(F.common)}</div></div><div class="pts">${x.total}</div></div>`).join('')}</section>
+ ${charts()}
+ <section class="panel"><div class="h2">Журнал решений</div><div class="log">${S.log.map(l=>`<div><span>${l.y} · ${l.role?ROLE[l.role].icon+' '+esc(ROLE[l.role].short)+' · ':''}${esc(l.t)}</span><span class="mono" style="color:${l.d>0?'var(--good)':l.d<0?'var(--bad)':'var(--mist)'}">${l.d?(l.d>0?'+':'−')+fM(Math.abs(l.d)):''}</span></div>`).join('')}</div></section>`;
+}
+function renderOnline(){
+ const u=new URL('play.html',location.href);u.search=`?r=${S.room}&b=${Math.max(0,S.broker)}`;const url=u.href,local=location.protocol==='file:';
+ let qr='';try{const q=qrcode(0,'M');q.addData(url);q.make();qr=q.createSvgTag(8,2)}catch(e){qr='<div style="color:#06121c;padding:20px">QR-код не загрузился. Откройте ссылку вручную.</div>'}
+ const by=r=>Object.values(PRES).filter(p=>p.role===r);
+ $('#stage').innerHTML=`<div class="join-grid"><section class="panel"><div class="qr">${qr}</div></section>
+ <section class="panel" style="display:flex;flex-direction:column;gap:14px">
+  <div><div class="eyebrow">Код комнаты</div><div class="room">${S.room}</div></div>
+  <div><div class="lbl">Сканируйте QR или откройте ссылку на телефоне</div><div class="url">${esc(url)}</div></div>
+  ${local?'<div class="ck no"><span class="ic">!</span><span>Пульт открыт как файл: телефоны не смогут зайти. Откройте пульт с сайта на GitHub Pages.</span></div>':''}
+  <div class="row"><span class="ibtn net ${netStatus}" style="cursor:default">${NET_LABEL[netStatus]}${NET&&NET.broker>=0?' · сервер '+NET_BROKERS[NET.broker].name:''}</span>${netStatus!=='online'?'<button class="btn sm" data-a="reconnect">Подключиться</button>':''}<button class="btn sm ghost" data-a="newroom" id="newRoomBtn">Новая комната</button></div>
+  <div><div class="lbl">Команды в игре ${S.stage==='lobby'?'(можно менять до начала 2027 года)':''}</div><div class="pills" style="margin-top:6px">${ROLES.map(r=>`<button class="pill ${S.active.includes(r.id)?'on':''}" style="--tc:${r.color}" data-a="toggleRole" data-k="${r.id}" ${S.stage==='lobby'?'':'disabled'}><i></i>${r.icon} ${esc(r.short)}</button>`).join('')}</div></div>
+ </section></div>
+ <section class="panel"><div class="h2">Игроки · ${Object.keys(PRES).length}</div><div class="roster" style="grid-template-columns:repeat(${Math.min(5,S.active.length)},minmax(0,1fr))">${S.active.map(r=>`<div class="rcol" style="--tc:${ROLE[r].color}"><h3>${ROLE[r].icon} ${esc(ROLE[r].short)}</h3>${by(r).length?by(r).map(p=>`<div class="player"><b>${esc(p.nick)}</b></div>`).join(''):'<div class="muted" style="font-size:13px">Пока никого</div>'}</div>`).join('')}</div></section>
+ <section class="panel"><div class="h2">Как проходит год</div><ol style="margin:0;padding-left:20px;line-height:1.7"><li><b>Новости года</b> — событие меняет условия.</li><li><b>Проекты и сделки</b> (8 мин) — команды предлагают проекты и договариваются.</li><li><b>Совет дестинации</b> (4 мин) — голосование по спорным проектам, протесты и вето.</li><li><b>Итоги года</b> — модель считает турпоток, природу, жителей и доходы.</li></ol></section>`;
+}
+const shown={};
+function renderBoard(){
+ const el=$('#board');
+ el.innerHTML=`<div class="board-head"><h2 style="margin:0">Команды</h2><span class="muted" style="font-size:12px">цели секретны</span></div>
+ ${S.active.map(r=>{const t=S.teams[r],R=ROLE[r];return`<article class="team" style="--tc:${R.color}"><div class="tt"><span style="font-size:18px">${R.icon}</span><span class="nm">${esc(R.short)}</span>${r==='gov'?`<span class="badge">вето: ${t.vetoes}</span>`:''}</div>
+  <div class="cap" id="cap-${r}">${fM(shown[r]!=null?shown[r]:t.money)}</div><div class="muted" style="font-size:12.5px">${t.built} проект(ов) · ${Object.values(PRES).filter(p=>p.role===r).length} игрок.</div></article>`}).join('')}`;
+ S.active.forEach(r=>countTo(r,S.teams[r].money));
+}
+function countTo(r,target){const el=$('#cap-'+r);if(!el)return;const from=shown[r]!=null?shown[r]:target;if(from===target){el.textContent=fM(target);shown[r]=target;return}
+ el.classList.add(target>from?'up':'down');const t0=performance.now(),dur=reduced?1:1000;
+ (function f(now){const k=Math.min(1,(now-t0)/dur),e=1-Math.pow(1-k,3);el.textContent=fM(from+(target-from)*e);if(k<1)requestAnimationFrame(f);else{shown[r]=target;setTimeout(()=>el.classList.remove('up','down'),600)}})(t0)}
+function renderStage(){({online:renderOnline,region:renderRegion,props:renderProps,deals:renderDeals,results:renderResults,final:renderFinal})[S.tab]()}
+function renderAll(){renderHeader();renderStage();renderBoard()}
+function flash(m){const d=document.createElement('div');d.className='flash';d.textContent=m;document.body.appendChild(d);setTimeout(()=>d.remove(),2500)}
+
+/* ═════════ ТАЙМЕР ═════════ */
+const T={total:480,left:480,run:false,label:'Открытие',end:0,lastSec:null};
+function tSet(sec,label){T.total=T.left=sec;T.run=false;T.label=label||'';T.lastSec=null;drawTimer();clearTimeout(pubT);pubT=setTimeout(pubState,120)}
+function drawTimer(){const s=Math.ceil(T.left);$('#tDigits').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+ $('#tArc').setAttribute('stroke-dashoffset',(502.65*(1-T.left/Math.max(1,T.total))).toFixed(1));$('#tLabel').textContent=T.label;$('#tGo').textContent=T.run?'❚❚ Пауза':'▶ Старт';$('#timer').classList.toggle('hot',T.run&&T.left<=30)}
+setInterval(()=>{if(!T.run)return;T.left=Math.max(0,(T.end-Date.now())/1000);const s=Math.ceil(T.left);if(s!==T.lastSec){T.lastSec=s;if(s<=30&&s>0)(s<=10?SFX.tock:SFX.tick)()}
+ if(T.left<=0){T.run=false;SFX.gong();flash('Время вышло!');pubState()}drawTimer()},200);
+
+/* ═════════ ДЕЙСТВИЯ ═════════ */
+let armNew=0,armRoom=0;
+function twoClick(btn,which,label,fn){const now=Date.now(),armed=which==='new'?armNew:armRoom;if(now-armed<3500){fn();return}if(which==='new')armNew=now;else armRoom=now;btn.textContent='Точно? Нажмите ещё раз';btn.classList.add('warn');setTimeout(()=>{if(btn.isConnected){btn.textContent=label;btn.classList.remove('warn')}},3500)}
+const A={
+ next:()=>next(),
+ tab:d=>{S.tab=d.k;save();renderAll()},
+ zone:d=>{S.sel=d.id;save();renderStage()},
+ toggleRole:d=>{if(S.stage!=='lobby')return;const i=S.active.indexOf(d.k);if(i>=0){if(S.active.length<=3)return toast('Нужно минимум 3 команды');S.active.splice(i,1)}else S.active.push(d.k);S.active.sort((a,b)=>ROLES.findIndex(r=>r.id===a)-ROLES.findIndex(r=>r.id===b));save();renderAll()},
+ force:d=>{const p=S.props.find(x=>x.id===d.id);if(!p)return;p.votes['host-'+makeId()]=d.v;if(d.v==='yes'){p.protest=[];p.veto=false;p.votes={host:'yes'}}else{p.votes={host:'no'}}save();renderAll()},
+ finale:()=>{S.finalShown=true;save();renderStage();SFX.drum();setTimeout(()=>{SFX.fanfare();confetti(240)},1300)},
+ tgo:()=>{ac();if(T.left<=0)T.left=T.total;T.run=!T.run;if(T.run)T.end=Date.now()+T.left*1000;drawTimer();pubState()},
+ tplus:()=>{T.left+=60;T.total=Math.max(T.total,T.left);if(T.run)T.end+=60000;drawTimer();pubState()},
+ treset:()=>{T.run=false;T.left=T.total;T.lastSec=null;drawTimer();pubState()},
+ sound:()=>{S.sound=!S.sound;save();renderHeader();if(S.sound){ac();SFX.coin()}},
+ fs:()=>{try{const p=document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();p&&p.catch&&p.catch(()=>{})}catch(e){}},
+ reconnect:()=>startNet(),
+ newroom:(d,btn)=>twoClick(btn,'room','Новая комната',()=>{S.room=makeRoomCode();Object.keys(PRES).forEach(k=>delete PRES[k]);save();startNet();renderAll();toast('Новая комната: '+S.room)}),
+ newgame:(d,btn)=>twoClick(btn,'new','Новая игра',()=>{S=fresh(S.room,S.active);Object.keys(shown).forEach(k=>delete shown[k]);save();pubGoals();tSet(STAGE_MIN.lobby*60,'Открытие');renderAll();btn.textContent='Новая игра';btn.classList.remove('warn');toast('Новая игра: секретные цели перемешаны')}),
+};
+document.addEventListener('click',e=>{const el=e.target.closest('[data-a]');if(!el||el.disabled)return;const f=A[el.dataset.a];if(f){ac();f(el.dataset,el,e)}});
+
+/* ═════════ СТАРТ ═════════ */
+T.total=T.left=STAGE_MIN[S.stage]*60;T.label=STAGES[S.stage];
+renderAll();drawTimer();startNet();
+</script>
+</body>
+</html>

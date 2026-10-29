@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#06121c">
+<title>Дестинация 2030 · Команда</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body class="phone-body">
+<div class="phone" id="root"></div>
+<script src="js/game.js"></script>
+<script src="js/net.js"></script>
+<script>
+/* ═════════ СОСТОЯНИЕ ИГРОКА ═════════ */
+const PKEY='dest2030-player-v1';
+const qs=new URLSearchParams(location.search);
+let P={};try{P=JSON.parse(localStorage.getItem(PKEY))||{}}catch(e){P={}}
+if(qs.get('r')){const r=qs.get('r').toUpperCase().replace(/[^A-Z0-9]/g,'');if(r!==P.room)P={room:r,nick:P.nick};P.b=+qs.get('b')||0}
+P.cid=P.cid||makeId();P.votes=P.votes||{};
+function saveP(){try{localStorage.setItem(PKEY,JSON.stringify(P))}catch(e){}}
+saveP();
+
+let G=null,offset=0,NET=null,netStatus='offline',setup=!(P.nick&&P.role),tab='role',goal=null,dirty=false;
+let lastStage=null,firstState=true,buzzed=false,sel='zel';
+const STAGES={lobby:'Открытие',news:'Новости года',work:'Проекты и сделки',council:'Совет дестинации',results:'Итоги года',final:'Финал'};
+const TASKS={
+ lobby:'Прочитайте свою роль и секретную цель. Обсудите в команде, какие проекты помогут её выполнить.',
+ news:'Прочитайте новость года. Как она меняет ваши планы?',
+ work:'Выберите проекты во вкладке «Проекты» и договоритесь с другими командами во вкладке «Сделки».',
+ council:'Голосуйте по спорным проектам во вкладке «Совет». Убеждайте других вслух!',
+ results:'Посмотрите во вкладке «Регион», что изменилось и почему.',
+ final:'Ведущий раскрывает секретные цели. Как вы справились?',
+};
+const NAV=[['role','🎯','Роль'],['region','🗺️','Регион'],['props','🏗️','Проекты'],['deals','🤝','Сделки'],['council','🗳️','Совет']];
+
+/* ═════════ СЕТЬ ═════════ */
+function connect(){
+ if(NET)NET.end();
+ const subs=['state','reply/'+P.cid];if(P.role)subs.push('goal/'+P.role);
+ NET=makeNet({room:P.room,subs,will:'pres/'+P.cid,onStatus:s=>{netStatus=s;if(s==='online')pubPres();render()},onMsg});
+ NET.connect(P.b).then(i=>{if(i>=0){P.b=i;saveP()}});
+}
+function pubPres(){if(NET&&NET.connected&&P.nick&&P.role)NET.pub('pres/'+P.cid,{nick:P.nick,role:P.role,ts:Date.now()},true)}
+function cmd(o){if(!NET||!NET.connected){toast('Нет связи с ведущим');return false}NET.pub('cmd',Object.assign({role:P.role,cid:P.cid,nick:P.nick},o));return true}
+function onMsg(sub,v){
+ if(sub==='state'){if(!v)return;G=v;offset=v.now-Date.now();onState();return}
+ if(sub.startsWith('goal/')){goal=v&&v.id;softRender();return}
+ if(sub.startsWith('reply/')&&v){toast(v.text);if(v.ok)buzz(60)}
+}
+function onState(){
+ if(firstState){firstState=false;lastStage=G.stage+G.year;render();return}
+ const key=G.stage+G.year;
+ if(key!==lastStage){lastStage=key;buzzed=false;
+  if(G.stage==='news'&&G.event){buzz(200);showOverlay(`<div class="evbig ${G.event.kind}"><div class="eyebrow">Новости ${G.year} года</div><h3>${esc(G.event.t)}</h3><p>${esc(G.event.d)}</p><button class="btn" data-a="closeov">Понятно</button></div>`)}
+  else if(G.stage==='results'&&G.results&&G.results.inc[P.role]!=null){buzz([80,60,80]);showOverlay(`<div class="evbig good"><div class="eyebrow">Итоги ${G.results.year} года</div><h3>Доход команды +${fM(G.results.inc[P.role])}</h3><p>${esc(G.results.why[P.role])}</p><button class="btn" data-a="closeov">Посмотреть регион</button></div>`);tab='region'}
+  else if(G.stage==='council'){buzz(120);tab='council';toast('Совет дестинации: голосуйте!')}
+  else if(G.stage==='work'){tab='props'}
+ }
+ if(G.final&&!P.finalSeen){P.finalSeen=true;saveP();const me=G.final.teams[P.role];if(me){confetti(120);showOverlay(`<div class="evbig"><div class="eyebrow">Финал</div><h3>Ваш итог: ${me.total} очков</h3><p>Цель «${esc(me.goal)}» выполнена на ${me.goalScore}%.</p><button class="btn" data-a="closeov">Понятно</button></div>`)}}
+ softRender();
+}
+function buzz(p){try{navigator.vibrate&&navigator.vibrate(p)}catch(e){}}
+function showOverlay(html){closeOverlay();const d=document.createElement('div');d.className='overlay';d.id='ov';d.innerHTML=html;document.body.appendChild(d)}
+function closeOverlay(){const o=$('#ov');if(o)o.remove()}
+
+/* ═════════ ОТРИСОВКА ═════════ */
+const me=()=>G&&G.teams[P.role];
+const lastH=()=>G.hist[G.hist.length-1];
+const prevH=()=>G.hist.length>1?G.hist[G.hist.length-2]:null;
+function render(){
+ dirty=false;
+ if(!P.room)return renderCode();
+ if(setup||!G)return renderSetup();
+ if(!G.active.includes(P.role)){setup=true;return renderSetup()}
+ const R=ROLE[P.role],t=me();
+ $('#root').innerHTML=`<header class="p-head" style="--tc:${R.color}">
+  <div class="p-top"><div class="p-team"><b>${R.icon} ${esc(R.short)}</b><span>${esc(P.nick)} · ${G.stage==='lobby'||G.stage==='final'?STAGES[G.stage]:G.year+' · '+STAGES[G.stage]}</span></div><div class="p-timer" id="pTimer">--:--</div><button class="mini" data-a="setup" aria-label="Сменить команду" style="width:34px;height:34px;font-size:16px">⚙</button></div>
+  <div class="p-sub"><span>Бюджет <b>${fM(t.money)}</b></span>${P.role==='gov'?`<span>Вето <b>${t.vetoes}</b></span>`:''}<span>Проектов <b>${t.built}</b></span>${netStatus!=='online'?'<span style="color:var(--warn)">● нет связи</span>':''}</div>
+ </header>
+ <div class="task"><div class="eyebrow">${esc(STAGES[G.stage])} · задание</div><p>${esc(TASKS[G.stage])}</p><div class="muted" id="pTimerLbl" style="font-size:12.5px;margin-top:6px"></div></div>
+ <div id="content">${({role:tRole,region:tRegion,props:tProps,deals:tDeals,council:tCouncil})[tab]()}</div>
+ <nav class="p-nav">${NAV.map(([k,ic,n])=>{const badge=k==='council'&&G.stage==='council'?' mine':k==='deals'&&G.deals.some(d=>d.to===P.role&&d.status==='open')?' mine':'';return`<button class="${tab===k?'on':''}${badge}" data-a="tab" data-k="${k}"><i>${ic}</i>${n}</button>`}).join('')}</nav>`;
+ drawTimer();
+}
+function softRender(){const a=document.activeElement;if(a&&/INPUT|TEXTAREA|SELECT/.test(a.tagName)&&$('#content')&&$('#content').contains(a)){dirty=true;return}render()}
+document.addEventListener('focusout',()=>setTimeout(()=>{if(dirty)render()},60));
+
+const brand=sub=>`<div class="brand"><svg class="drop" viewBox="0 0 34 40" aria-hidden="true"><path d="M17 1C17 1 3 17 3 26a14 14 0 0 0 28 0C31 17 17 1 17 1Z" fill="#f4a73b"/></svg><div><h1>Дестинация 2030</h1><small>${sub}</small></div></div>`;
+function renderCode(){$('#root').innerHTML=`<div class="join">${brand('вход для команды')}<div class="p-card"><div class="field"><label for="code">Код комнаты с экрана ведущего</label><input class="inp mono" id="code" maxlength="6" autocomplete="off" style="font-size:26px;letter-spacing:.2em;text-transform:uppercase" placeholder="ABCDE"></div><button class="btn wide" data-a="code">Войти</button></div></div>`}
+function renderSetup(){
+ const act=G?G.active:ROLES.map(r=>r.id),st=netStatus==='online'?(G?'на связи':'ждём ведущего…'):netStatus==='nolib'?'не загрузилась библиотека связи':netStatus==='fail'?'нет связи с сервером':'подключение…';
+ $('#root').innerHTML=`<div class="join">${brand(`комната ${esc(P.room)} · <span class="net ${netStatus}">${st}</span>`)}
+ <div class="p-card"><div class="field"><label for="nick">Ваше имя или псевдоним</label><input class="inp" id="nick" maxlength="20" value="${esc(P.nick||'')}" autocomplete="off"></div></div>
+ <div class="p-card"><h3>Ваша команда</h3><div class="choice">${ROLES.filter(r=>act.includes(r.id)).map(r=>`<button class="${P.role===r.id?'on':''}" style="--tc:${r.color}" data-a="pickRole" data-k="${r.id}"><i></i><span>${r.icon} ${esc(r.name)}<small>${esc(r.about)}</small></span></button>`).join('')}</div></div>
+ <button class="btn wide" data-a="enter" ${G?'':'disabled'}>${G?'Войти в игру':'Ждём, пока ведущий откроет пульт'}</button>
+ ${netStatus==='fail'||netStatus==='nolib'?'<button class="btn ghost wide" data-a="retry">Повторить подключение</button>':''}</div>`;
+}
+
+function tRole(){
+ const R=ROLE[P.role],t=me(),g=goal&&GOALS[P.role].find(x=>x.id===goal),res=G.results;
+ return`<div class="rolecard" style="--rc:${R.color}"><div class="eyebrow">Ваша команда</div><h3>${R.icon} ${esc(R.name)}</h3><p style="margin:0">${esc(R.about)}</p>
+  <div class="goal"><div class="eyebrow">Секретная цель · не показывайте другим командам</div>${g?`<p style="margin:6px 0 0"><b>${esc(g.t)}.</b> ${esc(g.d)}</p>`:'<p class="muted" style="margin:6px 0 0">Цель загружается…</p>'}</div></div>
+ <div class="p-card" style="margin-top:12px"><div class="eyebrow">Бюджет команды</div><div class="money">${fM(t.money)}</div>
+  ${res&&res.inc[P.role]!=null?`<p class="muted" style="font-size:13px;margin:6px 0 0">Доход за ${res.year}: <b style="color:var(--good)">+${fM(res.inc[P.role])}</b>. ${esc(res.why[P.role])}</p>`:''}</div>
+ ${t.assets.length?`<div class="p-card"><h3>Ваши доходные объекты</h3>${t.assets.map(a=>`<div class="row" style="justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(36,80,111,.5)"><span>${esc(PROJ[a.pid].name)}</span><span class="muted">${esc(ZONE[a.zone]?ZONE[a.zone].name:'')}</span></div>`).join('')}</div>`:''}
+ ${G.final?finalCard():''}
+ <div class="p-card"><h3>Как устроен год</h3><ol style="margin:0;padding-left:20px;font-size:14px;line-height:1.6"><li>Новость года меняет условия.</li><li>8 минут на проекты и сделки.</li><li>Совет голосует по спорным проектам. У экологов и жителей есть протест, у правительства вето.</li><li>Модель считает, как изменился регион, и начисляет доходы.</li></ol></div>`;
+}
+function finalCard(){const F=G.final,rows=Object.entries(F.teams).sort((a,b)=>b[1].total-a[1].total);
+ return`<div class="p-card"><h3>Финал</h3>${F.closed?`<div class="banner bad">Косу закрывали: всем −${COMMON_PENALTY}</div>`:''}${F.common>0?`<div class="banner good">Регион устойчив: всем +${COMMON_BONUS}</div>`:''}
+ ${rows.map(([r,x],k)=>`<div class="row" style="justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(36,80,111,.5)"><span>${k===0?'👑':ROLE[r].icon} <b style="color:${ROLE[r].color}">${esc(ROLE[r].short)}</b><br><small class="muted">«${esc(x.goal)}» · ${x.goalScore}/100</small></span><b class="mono" style="font-size:20px">${x.total}</b></div>`).join('')}</div>`}
+
+function tRegion(){
+ const H=lastH(),r=H.region,p=prevH(),z=H.zones[sel],Z=ZONE[sel],rs=(G.reasons||{})[sel]||[];
+ const d=(v,pv,dig)=>p==null?'':`<span class="d ${v-pv>=0?'up':'down'}">${v-pv>=0?'+':'−'}${Math.abs(v-pv).toFixed(dig||0).replace('.',',')}</span>`;
+ const built=G.props.filter(x=>x.status==='built').map(x=>({zone:x.zone==='all'?'kgd':x.zone,role:x.role}));
+ const L=G.hist.map(h=>h.year);
+ return`<div class="kpis" style="margin-bottom:12px">
+  <div class="kpi"><span>Турпоток</span><b>${fT(r.tourists)}</b>${p?d(r.tourists/1000,p.region.tourists/1000,2):''}</div>
+  <div class="kpi"><span>Рейтинг</span><b>${String(r.rating).replace('.',',')} ★</b>${p?d(r.rating,p.region.rating,1):''}</div>
+  <div class="kpi"><span>Природа</span><b style="color:${idxColor(r.eco)}">${Math.round(r.eco)}</b>${p?d(r.eco,p.region.eco):''}</div>
+  <div class="kpi"><span>Жители</span><b style="color:${idxColor(r.res)}">${Math.round(r.res)}</b>${p?d(r.res,p.region.res):''}</div></div>
+ <div class="p-card" style="padding:8px"><div class="map-wrap">${regionSVG(H,sel,built)}</div><p class="muted" style="font-size:12px;margin:6px 4px 0">Нажмите на круг, чтобы увидеть зону.</p></div>
+ <div class="p-card zcard"><h3>${esc(Z.name)}</h3><p class="muted" style="font-size:13px;margin:-4px 0 10px">${esc(ZONE_NOTE[sel])}</p>
+  <div class="zrow"><span>Нагрузка</span><div class="bar"><i style="width:${Math.min(100,z.load/1.3*100)}%;background:${loadColor(z.load)}"></i></div><b>${z.closed?'закр.':Math.round(z.load*100)+'%'}</b></div>
+  <div class="zrow"><span>Природа</span><div class="bar"><i style="width:${z.eco}%;background:${idxColor(z.eco)}"></i></div><b>${Math.round(z.eco)}</b></div>
+  <div class="zrow"><span>Жители</span><div class="bar"><i style="width:${z.res}%;background:${idxColor(z.res)}"></i></div><b>${Math.round(z.res)}</b></div>
+  <div class="zrow"><span>Доля лета</span><div class="bar"><i style="width:${z.season}%;background:#c6a2e0"></i></div><b>${Math.round(z.season)}%</b></div>
+  <div class="muted mono" style="font-size:12px">Туристов ${fN(z.served)} тыс. · спрос ${fN(z.demand)} тыс.${z.cap?' · мест '+fN(z.cap)+' тыс.':''} · пропускная ${fN(z.carry)} тыс.</div>
+  ${rs.length?`<ul class="why">${rs.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:''}</div>
+ ${L.length>1?`<div class="p-card"><div class="lbl">Природа и жители</div>${lineChart(L,[{name:'Природа',color:'#5fd3a0',values:G.hist.map(h=>h.region.eco)},{name:'Жители',color:'#ff8a65',values:G.hist.map(h=>h.region.res)},{name:'Коса',color:'#4cc9f0',values:G.hist.map(h=>h.zones.spit.eco)}],{min:0,max:100})}</div>
+  <div class="p-card"><div class="lbl">Турпоток, млн</div>${lineChart(L,[{name:'Турпоток',color:'#f4a73b',values:G.hist.map(h=>h.region.tourists/1000)}],{fmt:v=>v.toFixed(1).replace('.',',')})}</div>`:''}`;
+}
+
+function tProps(){
+ const open=G.stage==='work',mul=G.costMul||1,t=me();
+ const mine=G.props.filter(p=>p.role===P.role).slice().reverse(),others=G.props.filter(p=>p.role!==P.role&&p.year===G.year);
+ const used=id=>G.props.some(x=>x.pid===id&&!['rejected','vetoed'].includes(x.status));
+ const st={approved:'утверждён',pending:'на совет',vote:'голосование',rejected:'отклонён',vetoed:'вето',built:'построен'};
+ return`${open?'':`<div class="p-card"><p class="muted" style="margin:0">Новые проекты можно предлагать на этапе «Проекты и сделки». Сейчас: ${esc(STAGES[G.stage])}.</p></div>`}
+ ${mul>1?`<div class="banner bad" style="margin-bottom:12px">В этом году проекты дороже на ${Math.round((mul-1)*100)}%</div>`:''}
+ <div class="p-card"><h3>Проекты вашей команды</h3>${PROJECTS.filter(p=>p.role===P.role).map(p=>{const cost=Math.round(p.cost*mul),zoneSel=p.zones?`<select class="inp" id="z-${p.id}" style="margin:6px 0">${p.zones.map(z=>`<option value="${z}">${esc(ZONE[z].name)}${isHot(p,z)?' · спорный':''}</option>`).join('')}</select>`:'';const hot=isHot(p,p.zones?p.zones[0]:null),blocked=p.once&&used(p.id);
+  return`<div class="tile" style="margin-bottom:8px"><div class="row" style="justify-content:space-between;align-items:flex-start"><b style="font:700 14px var(--f-body);white-space:normal;flex:1">${esc(p.name)}</b><span class="mono" style="color:var(--amber-hi);font-weight:800">${cost?fM(cost):'бесплатно'}</span></div>
+   <span>${p.region?'Весь регион':p.fixed?p.fixed.map(z=>ZONE[z].name).join(', '):'Выберите зону'}${hot?' · <span class="tag hot">спорный</span>':''}${p.once?' · <span class="tag">один раз</span>':''}</span>
+   <div class="eff mono" style="font-size:12px;color:var(--mist);margin-top:4px">${esc(effText(p,p.zones?p.zones[0]:null))}</div>${p.note?`<div class="muted" style="font-size:12.5px;margin-top:4px">${esc(p.note)}</div>`:''}
+   ${zoneSel}<button class="btn sm" style="margin-top:6px" data-a="propose" data-id="${p.id}" ${open&&!blocked&&t.money>=cost?'':'disabled'}>${blocked?'Уже принят':t.money<cost?'Не хватает денег':'Предложить'}</button></div>`}).join('')}</div>
+ ${mine.length?`<div class="p-card"><h3>Ваши решения</h3>${mine.map(p=>`<div class="row" style="justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(36,80,111,.5)"><span>${esc(PROJ[p.pid].name)}<br><small class="muted">${p.year} · ${p.zone==='all'?'весь регион':esc((ZONE[p.zone]||{}).name||'')} · ${fM(p.cost)}</small></span><span class="row" style="gap:6px"><span class="status ${p.status}">${st[p.status]}</span>${open&&p.year===G.year&&['approved','pending'].includes(p.status)?`<button class="mini" data-a="cancel" data-id="${p.id}" aria-label="Отменить">✕</button>`:''}</span></div>`).join('')}</div>`:''}
+ ${others.length?`<div class="p-card"><h3>Что предлагают другие в ${G.year}</h3>${others.map(p=>`<div class="row" style="justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(36,80,111,.5)"><span>${ROLE[p.role].icon} ${esc(PROJ[p.pid].name)}<br><small class="muted">${p.zone==='all'?'весь регион':esc((ZONE[p.zone]||{}).name||'')}</small></span><span class="status ${p.status}">${st[p.status]}</span></div>`).join('')}</div>`:''}`;
+}
+
+function tDeals(){
+ const open=['work','council'].includes(G.stage),others=G.active.filter(r=>r!==P.role);
+ const inc=G.deals.filter(d=>d.to===P.role),out=G.deals.filter(d=>d.from===P.role);
+ const st={open:'ждёт ответа',accepted:'заключена',declined:'отклонена',failed:'сорвалась'};
+ const line=(d,incoming)=>`<div class="ans" style="border-color:${ROLE[incoming?d.from:d.to].color}"><b>${incoming?'От':'Кому'}: ${ROLE[incoming?d.from:d.to].icon} ${esc(ROLE[incoming?d.from:d.to].short)} · ${st[d.status]}</b>
+  ${d.give?(incoming?'Вам дают ':'Вы даёте ')+fM(d.give):''}${d.give&&d.get?' · ':''}${d.get?(incoming?'Просят у вас ':'Вы просите ')+fM(d.get):''}${d.note?`<div>«${esc(d.note)}»</div>`:''}
+  ${incoming&&d.status==='open'?`<div class="row" style="margin-top:8px"><button class="btn sm" data-a="dealYes" data-id="${d.id}">Принять</button><button class="btn sm ghost" data-a="dealNo" data-id="${d.id}">Отклонить</button></div>`:''}</div>`;
+ return`<div class="p-card"><h3>Предложить сделку</h3>${open?'':'<p class="muted" style="margin-top:-4px">Сделки открыты на этапах «Проекты» и «Совет».</p>'}
+  <div class="field"><label for="dto">Кому</label><select class="inp" id="dto" ${open?'':'disabled'}>${others.map(r=>`<option value="${r}">${ROLE[r].icon} ${esc(ROLE[r].name)}</option>`).join('')}</select></div>
+  <div class="row" style="flex-wrap:nowrap"><div class="field" style="flex:1"><label for="dgive">Мы даём, млн</label><input class="inp mono" id="dgive" inputmode="numeric" placeholder="0" ${open?'':'disabled'}></div><div class="field" style="flex:1"><label for="dget">Мы просим, млн</label><input class="inp mono" id="dget" inputmode="numeric" placeholder="0" ${open?'':'disabled'}></div></div>
+  <div class="field"><label for="dnote">Условие</label><input class="inp" id="dnote" maxlength="160" placeholder="Например: голосуем «за» ваши очистные" ${open?'':'disabled'}></div>
+  <button class="btn wide" data-a="deal" ${open?'':'disabled'}>Отправить предложение</button></div>
+ <div class="p-card"><h3>Входящие</h3>${inc.length?inc.map(d=>line(d,true)).join(''):'<p class="muted" style="margin:0">Пока ничего</p>'}</div>
+ ${out.length?`<div class="p-card"><h3>Ваши предложения</h3>${out.map(d=>line(d,false)).join('')}</div>`:''}`;
+}
+
+function tCouncil(){
+ const list=G.props.filter(p=>p.status==='vote');
+ if(G.stage!=='council')return`<div class="p-card"><h3>Совет дестинации</h3><p class="muted" style="margin:0">Совет собирается после этапа проектов. Здесь появятся спорные проекты: вред природе или жителям, стройки на косе.</p></div>
+  ${G.props.filter(p=>p.status==='pending').length?`<div class="p-card"><h3>Ждут совета</h3>${G.props.filter(p=>p.status==='pending').map(p=>`<div style="padding:5px 0">${ROLE[p.role].icon} ${esc(PROJ[p.pid].name)} <small class="muted">· ${p.zone==='all'?'весь регион':esc((ZONE[p.zone]||{}).name||'')}</small></div>`).join('')}</div>`:''}`;
+ const t=me();
+ return list.length?list.map(p=>{const pr=PROJ[p.pid],tot=Math.max(1,p.yes+p.no),my=P.votes[p.id];
+  return`<div class="p-card" style="border-left:5px solid ${ROLE[p.role].color}"><div class="muted" style="font-size:12.5px">${ROLE[p.role].icon} ${esc(ROLE[p.role].short)} · ${p.zone==='all'?'весь регион':esc((ZONE[p.zone]||{}).name||'')} · ${fM(p.cost)}</div><h3 style="margin:4px 0 6px">${esc(pr.name)}</h3>
+   <div class="mono" style="font-size:12px;color:var(--mist)">${esc(effText(pr,p.zone))}</div>${pr.note?`<p class="muted" style="font-size:13px;margin:6px 0 0">${esc(pr.note)}</p>`:''}
+   <div class="vbar" style="margin:10px 0 6px"><i class="y" style="width:${p.yes/tot*100}%">${p.yes||''}</i><i class="n" style="width:${p.no/tot*100}%">${p.no||''}</i></div>
+   <div class="row" style="margin-bottom:8px">${p.protest.map(r=>`<span class="tag hot">протест: ${ROLE[r].short}</span>`).join('')}${p.veto?'<span class="tag hot">вето правительства</span>':''}${p.protest.length?'<span class="muted" style="font-size:12px">нужно 2/3 «за»</span>':''}</div>
+   <div class="row" style="flex-wrap:nowrap"><button class="btn ${my==='yes'?'':'ghost'}" style="flex:1" data-a="vote" data-id="${p.id}" data-v="yes">${my==='yes'?'✓ ':''}За</button><button class="btn ${my==='no'?'':'ghost'}" style="flex:1" data-a="vote" data-id="${p.id}" data-v="no">${my==='no'?'✓ ':''}Против</button></div>
+   ${['eco','res'].includes(P.role)&&!p.protest.includes(P.role)&&p.role!==P.role?`<button class="btn ghost wide" style="margin-top:8px" data-a="protest" data-id="${p.id}">✊ Объявить протест</button>`:''}
+   ${P.role==='gov'&&!p.veto?`<button class="btn ghost wide" style="margin-top:8px" data-a="veto" data-id="${p.id}" ${t.vetoes>0?'':'disabled'}>⛔ Вето (осталось ${t.vetoes})</button>`:''}</div>`}).join(''):'<div class="p-card"><p class="muted" style="margin:0">Спорных проектов в этом году нет.</p></div>';
+}
+
+/* ═════════ ТАЙМЕР ═════════ */
+function drawTimer(){const el=$('#pTimer');if(!el||!G)return;const tm=G.timer||{};
+ const left=tm.run?Math.max(0,(tm.end-(Date.now()+offset))/1000):(tm.left||0),s=Math.ceil(left);
+ el.textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');el.classList.toggle('hot',!!tm.run&&left<=30&&left>0);
+ const l=$('#pTimerLbl');if(l)l.textContent=(tm.label?'⏱ '+tm.label:'')+(tm.run?'':' · таймер на паузе');
+ if(tm.run&&left<=0&&!buzzed){buzzed=true;buzz([300,100,300]);toast('Время вышло!')}if(left>1)buzzed=false}
+setInterval(drawTimer,250);
+
+/* ═════════ ДЕЙСТВИЯ ═════════ */
+const num=id=>Math.max(0,Math.round(+(($('#'+id)||{}).value||'').replace(/[^\d]/g,'')||0));
+const A={
+ code:()=>{const v=($('#code').value||'').toUpperCase().replace(/[^A-Z0-9]/g,'');if(v.length<4)return toast('Введите код комнаты');P.room=v;P.b=0;saveP();connect();render()},
+ pickRole:d=>{P.role=d.k;saveP();renderSetup()},
+ enter:()=>{const n=($('#nick').value||'').trim();if(!n)return toast('Напишите имя или псевдоним');if(!P.role)return toast('Выберите команду');P.nick=n.slice(0,20);saveP();setup=false;tab='role';goal=null;connect();render()},
+ retry:()=>connect(),
+ setup:()=>{setup=true;render()},
+ tab:d=>{tab=d.k;render();scrollTo(0,0)},
+ closeov:()=>closeOverlay(),
+ zone:d=>{sel=d.id;render()},
+ propose:d=>{const p=PROJ[d.id],z=p.zones?$('#z-'+p.id).value:null;cmd({type:'propose',pid:p.id,zone:z})},
+ cancel:d=>cmd({type:'cancel',id:d.id}),
+ vote:d=>{P.votes[d.id]=d.v;saveP();if(cmd({type:'vote',id:d.id,v:d.v}))render()},
+ protest:d=>cmd({type:'protest',id:d.id}),
+ veto:d=>cmd({type:'veto',id:d.id}),
+ deal:()=>{const to=$('#dto').value,give=num('dgive'),get=num('dget'),note=($('#dnote').value||'').trim();if(!give&&!get&&!note)return toast('Заполните сделку');if(give>me().money)return toast('У вас нет столько денег');if(cmd({type:'deal',to,give,get,note})){$('#dgive').value='';$('#dget').value='';$('#dnote').value=''}},
+ dealYes:d=>cmd({type:'dealAnswer',id:d.id,accept:true}),
+ dealNo:d=>cmd({type:'dealAnswer',id:d.id,accept:false}),
+};
+document.addEventListener('click',e=>{const el=e.target.closest('[data-a]');if(!el||el.disabled)return;const f=A[el.dataset.a];if(f)f(el.dataset,el,e)});
+
+render();if(P.room)connect();
+</script>
+</body>
+</html>
